@@ -6,9 +6,9 @@ interface GroupState {
   setGroup: (group: Group) => void;
 }
 
-export const useGroupStore = create<GroupState>(() => ({
+export const useGroupStore = create<GroupState>((set) => ({
   group: null,
-  setGroup: () => {},
+  setGroup: (group: Group) => set({ group }),
 }));
 
 

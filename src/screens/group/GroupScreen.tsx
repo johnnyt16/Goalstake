@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert, FlatList, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
@@ -8,6 +8,8 @@ import { saveItem, getItem } from '../../services/storage/asyncStorage';
 import { storageKeys } from '../../constants/storageKeys';
 import type { Group, GroupMember } from '../../types/group';
 import type { User } from '../../types/user';
+import Card from '../../components/common/Card';
+import PrimaryButton from '../../components/common/PrimaryButton';
 
 type MemberProgress = Record<string, number>; // memberId -> todayMinutes
 
@@ -136,44 +138,41 @@ export default function GroupScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       {!group ? (
         <View>
-          <Text style={styles.sectionTitle}>Create a group</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Group name"
-            value={groupName}
-            onChangeText={setGroupName}
-            returnKeyType="done"
-          />
-          <TouchableOpacity style={styles.buttonPrimary} onPress={handleCreate}>
-            <Text style={styles.buttonText}>Create Group</Text>
-          </TouchableOpacity>
+          <Card>
+            <Text style={styles.sectionTitle}>Create a group</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Group name"
+              value={groupName}
+              onChangeText={setGroupName}
+              returnKeyType="done"
+            />
+            <PrimaryButton title="Create Group" onPress={handleCreate} />
+          </Card>
 
-          <Text style={[styles.sectionTitle, { marginTop: spacing.xl }]}>Join a group</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter code"
-            value={groupCode}
-            onChangeText={setGroupCode}
-            autoCapitalize="characters"
-            returnKeyType="done"
-          />
-          <TouchableOpacity style={styles.buttonDark} onPress={handleJoin}>
-            <Text style={styles.buttonText}>Join Group</Text>
-          </TouchableOpacity>
+          <Card style={{ marginTop: spacing.lg }}>
+            <Text style={styles.sectionTitle}>Join a group</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter code"
+              value={groupCode}
+              onChangeText={setGroupCode}
+              autoCapitalize="characters"
+              returnKeyType="done"
+            />
+            <PrimaryButton title="Join Group" onPress={handleJoin} />
+          </Card>
         </View>
       ) : (
         <View>
           {header}
           <Text style={styles.sectionTitle}>Members</Text>
-          <FlatList
-            data={group.members}
-            keyExtractor={(m) => m.id}
-            contentContainerStyle={{ paddingBottom: spacing.xxl }}
-            renderItem={({ item }) => {
+          <Card style={{ paddingBottom: spacing.md }}>
+            {group.members.map((item) => {
               const { used, pct } = progressPercent(item);
               const pctText = Math.round(pct * 100);
               return (
-                <View style={styles.memberRow}>
+                <View key={item.id} style={styles.memberRow}>
                   <View style={styles.memberHeaderRow}>
                     <Text style={styles.memberName}>{item.name}</Text>
                     <Text style={{ color: colors.mutedText }}>{pctText}%</Text>
@@ -186,8 +185,8 @@ export default function GroupScreen() {
                   </Text>
                 </View>
               );
-            }}
-          />
+            })}
+          </Card>
         </View>
       )}
       </ScrollView>
@@ -196,9 +195,9 @@ export default function GroupScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text, marginBottom: spacing.md },
   input: {
     borderWidth: 1,
@@ -207,7 +206,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     color: colors.text,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     marginBottom: spacing.md,
   },
   buttonPrimary: { backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },

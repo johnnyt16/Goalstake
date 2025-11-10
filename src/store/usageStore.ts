@@ -6,9 +6,13 @@ interface UsageState {
   upsertEntry: (entry: UsageEntry) => void;
 }
 
-export const useUsageStore = create<UsageState>(() => ({
+export const useUsageStore = create<UsageState>((set) => ({
   entries: [],
-  upsertEntry: () => {},
+  upsertEntry: (entry: UsageEntry) =>
+    set((state) => {
+      const others = state.entries.filter((e) => e.id !== entry.id);
+      return { entries: [...others, entry] };
+    }),
 }));
 
 

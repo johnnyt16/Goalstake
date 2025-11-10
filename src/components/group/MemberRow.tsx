@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { colors } from '../../theme/colors';
 
 export default function MemberRow() {
   return (
@@ -10,7 +11,7 @@ export default function MemberRow() {
 }
 
 const styles = StyleSheet.create({
-  row: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  row: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
 });
 
 

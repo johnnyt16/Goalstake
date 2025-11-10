@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet } from 'react-native';
+import { colors } from '../../theme/colors';
 
 export default function TextField() {
   return (
@@ -12,7 +13,7 @@ export default function TextField() {
 
 const styles = StyleSheet.create({
   container: { width: '100%' },
-  input: { borderWidth: 1, borderColor: '#ddd', padding: 8, borderRadius: 6 },
+  input: { borderWidth: 1, borderColor: colors.border, padding: 8, borderRadius: 6 },
 });
 
 

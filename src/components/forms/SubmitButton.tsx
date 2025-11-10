@@ -1,5 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { colors } from '../../theme/colors';
 
 export default function SubmitButton() {
   return (
@@ -10,7 +11,7 @@ export default function SubmitButton() {
 }
 
 const styles = StyleSheet.create({
-  button: { paddingVertical: 12, paddingHorizontal: 16, backgroundColor: '#3B82F6', borderRadius: 8 },
+  button: { paddingVertical: 12, paddingHorizontal: 16, backgroundColor: colors.primary, borderRadius: 8 },
   text: { color: '#fff', fontWeight: '600', textAlign: 'center' },
 });
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../theme/colors';
 import { spacing } from '../../theme/spacing';
@@ -8,11 +8,22 @@ import { storageKeys } from '../../constants/storageKeys';
 import type { User } from '../../types/user';
 import type { UsageEntry } from '../../types/usage';
 import { formatISO, startOfDay, isSameDay, subDays } from 'date-fns';
+import { parseNonNegativeNumber } from '../../utils/validation';
+import { useUserStore } from '../../store/userStore';
+import { useUsageStore } from '../../store/usageStore';
+// SCREENSHOT FEATURE - Commented out for Expo Go compatibility
+// import { ScreenshotUploader } from '../../components/screenshot/ScreenshotUploader';
+// import type { ScreenTimeData } from '../../services/ocr/screenTimeOCR';
+import Card from '../../components/common/Card';
+import PrimaryButton from '../../components/common/PrimaryButton';
 
 export default function ProgressScreen() {
-  const [user, setUser] = useState<User | null>(null);
+  const userFromStore = useUserStore((s) => s.user);
+  const setUserStore = useUserStore((s) => s.setUser);
   const [todayMinutes, setTodayMinutes] = useState<string>('');
-  const [entries, setEntries] = useState<UsageEntry[]>([]);
+  const entries = useUsageStore((s) => s.entries);
+  const upsertEntryInStore = useUsageStore((s) => s.upsertEntry);
+  const [entriesLoaded, setEntriesLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const todayStart = useMemo(() => startOfDay(new Date()), []);
@@ -20,32 +31,42 @@ export default function ProgressScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const userRaw = await getItem(storageKeys.user);
-        if (userRaw) setUser(JSON.parse(userRaw));
+        let user: User | null = userFromStore ?? null;
+        if (!user) {
+          const userRaw = await getItem(storageKeys.user);
+          if (userRaw) {
+            user = JSON.parse(userRaw);
+            setUserStore(user);
+          }
+        }
 
         const entriesRaw = await getItem(storageKeys.usageEntries);
         const parsed: UsageEntry[] = entriesRaw ? JSON.parse(entriesRaw) : [];
-        setEntries(parsed);
+        // initialize store entries once
+        if (!entriesLoaded) {
+          parsed.forEach((e) => upsertEntryInStore(e));
+          setEntriesLoaded(true);
+        }
 
-        const myToday = parsed.find((e) => isSameDay(new Date(e.date), todayStart) && (!userRaw || e.userId === JSON.parse(userRaw).id));
+        const myToday = parsed.find((e) => isSameDay(new Date(e.date), todayStart) && (!user ? true : e.userId === user.id));
         if (myToday) setTodayMinutes(String(myToday.minutesUsed));
       } catch {}
       setLoading(false);
     })();
-  }, [todayStart]);
+  }, [todayStart, userFromStore, setUserStore, upsertEntryInStore, entriesLoaded]);
 
-  const goalMinutes = user?.dailyGoalMinutes ?? 0;
+  const goalMinutes = userFromStore?.dailyGoalMinutes ?? 0;
   const usedMinutes = Number(todayMinutes) || 0;
   const pct = goalMinutes > 0 ? Math.min(1, usedMinutes / goalMinutes) : 0;
   const pctText = Math.round(pct * 100);
 
   const computeStreak = useMemo(() => {
     return () => {
-      if (!user) return 0;
+      if (!userFromStore) return 0;
       // Build a map of day(yyyy-mm-dd) -> minutes for this user
       const byDay = new Map<string, number>();
       entries
-        .filter((e) => e.userId === user.id)
+        .filter((e) => e.userId === userFromStore.id)
         .forEach((e) => {
           const key = formatISO(startOfDay(new Date(e.date)), { representation: 'date' });
           byDay.set(key, e.minutesUsed);
@@ -56,7 +77,7 @@ export default function ProgressScreen() {
       while (true) {
         const key = formatISO(dayCursor, { representation: 'date' });
         const val = byDay.get(key);
-        if (val == null || val > goalMinutes || goalMinutes === 0) {
+        if (val == null || goalMinutes === 0 || val < goalMinutes) {
           break;
         }
         streak += 1;
@@ -64,32 +85,57 @@ export default function ProgressScreen() {
       }
       return streak;
     };
-  }, [entries, user, goalMinutes]);
+  }, [entries, userFromStore, goalMinutes]);
 
   const streak = computeStreak();
 
   const upsertToday = async () => {
-    if (!user) {
+    if (!userFromStore) {
       Alert.alert('Missing info', 'Please set your name and daily goal on Home first.');
       return;
     }
-    const value = Number(todayMinutes);
-    if (!Number.isFinite(value) || value < 0) {
+    const value = parseNonNegativeNumber(todayMinutes);
+    if (value == null) {
       Alert.alert('Validation', 'Enter minutes used (0 or more).');
       return;
     }
     const newEntry: UsageEntry = {
-      id: `${user.id}_${formatISO(todayStart)}`,
-      userId: user.id,
+      id: `${userFromStore.id}_${formatISO(todayStart)}`,
+      userId: userFromStore.id,
       date: formatISO(todayStart),
       minutesUsed: Math.round(value),
     };
-    const others = entries.filter((e) => !(e.userId === user.id && isSameDay(new Date(e.date), todayStart)));
-    const next = [...others, newEntry];
-    setEntries(next);
-    await saveItem(storageKeys.usageEntries, JSON.stringify(next));
+    upsertEntryInStore(newEntry);
+    // persist all entries from store (including new one)
+    await saveItem(storageKeys.usageEntries, JSON.stringify([...entries.filter((e) => e.id !== newEntry.id), newEntry]));
     Alert.alert('Saved', 'Today\'s screen time saved.');
   };
+
+  // SCREENSHOT FEATURE - Commented out for Expo Go compatibility
+  // const handleScreenshotData = async (data: ScreenTimeData) => {
+  //   if (!userFromStore) {
+  //     Alert.alert('Missing info', 'Please set your name and daily goal on Home first.');
+  //     return;
+  //   }
+
+  //   // Create entry with extracted data
+  //   const newEntry: UsageEntry = {
+  //     id: `${userFromStore.id}_${formatISO(todayStart)}`,
+  //     userId: userFromStore.id,
+  //     date: formatISO(todayStart),
+  //     minutesUsed: data.dailyMinutes,
+  //     weeklyMinutes: data.weeklyMinutes,
+  //     dailyAverage: data.dailyAverage,
+  //     appUsage: data.appUsage,
+  //   };
+
+  //   // Update local state to show the extracted value
+  //   setTodayMinutes(String(data.dailyMinutes));
+
+  //   // Save to store and persist
+  //   upsertEntryInStore(newEntry);
+  //   await saveItem(storageKeys.usageEntries, JSON.stringify([...entries.filter((e) => e.id !== newEntry.id), newEntry]));
+  // };
 
   if (loading) {
     return (
@@ -101,42 +147,90 @@ export default function ProgressScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xxl }}>
-        <Text style={styles.title}>Daily Progress</Text>
+      <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', android: undefined })} style={{ flex: 1 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xxl }} keyboardShouldPersistTaps="handled">
+          <Text style={styles.title}>Daily Progress</Text>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Your goal</Text>
-          <Text style={styles.value}>{goalMinutes} min</Text>
-        </View>
+          <Card>
+            <Text style={styles.label}>Your goal</Text>
+            <Text style={styles.value}>{goalMinutes} min</Text>
+          </Card>
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Today's screen time (minutes)</Text>
-          <TextInput
-            style={styles.input}
-            value={todayMinutes}
-            onChangeText={setTodayMinutes}
-            keyboardType="numeric"
-            placeholder="e.g. 90"
-            returnKeyType="done"
-          />
-          <TouchableOpacity style={styles.button} onPress={upsertToday}>
-            <Text style={styles.buttonText}>Save</Text>
-          </TouchableOpacity>
-        </View>
+        {/* SCREENSHOT FEATURE - Commented out for Expo Go compatibility */}
+        {/* <Card>
+            <Text style={styles.sectionTitle}>Upload Screenshot</Text>
+            <ScreenshotUploader
+              onDataExtracted={handleScreenshotData}
+              buttonText="Upload Screen Time Screenshot"
+            />
+          </Card> */}
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Progress</Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${pctText}%` }]} />
-          </View>
-          <Text style={styles.mutedSmall}>{usedMinutes} / {goalMinutes} min ({pctText}%)</Text>
-        </View>
+        {/* <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View> */}
 
-        <View style={styles.card}>
-          <Text style={styles.label}>Streak</Text>
-          <Text style={styles.value}>{streak} day{streak === 1 ? '' : 's'}</Text>
-        </View>
-      </ScrollView>
+        {/* Manual Input Section */}
+          <Card>
+            <Text style={styles.label}>Today's screen time (minutes)</Text>
+            <TextInput
+              style={styles.input}
+              value={todayMinutes}
+              onChangeText={setTodayMinutes}
+              keyboardType="numeric"
+              placeholder="e.g. 90"
+              returnKeyType="done"
+            />
+            <PrimaryButton title="Save" onPress={upsertToday} />
+          </Card>
+
+          <Card>
+            <Text style={styles.label}>Progress</Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${pctText}%` }]} />
+            </View>
+            <Text style={styles.mutedSmall}>{usedMinutes} / {goalMinutes} min ({pctText}%)</Text>
+          </Card>
+
+          <Card>
+            <Text style={styles.label}>Streak</Text>
+            <Text style={styles.value}>{streak} day{streak === 1 ? '' : 's'}</Text>
+          </Card>
+
+        {/* SCREENSHOT FEATURE - App Usage Breakdown - Commented out for Expo Go compatibility */}
+        {/* {(() => {
+          const todayEntry = entries.find(
+            (e) => isSameDay(new Date(e.date), todayStart) && e.userId === userFromStore?.id
+          );
+
+          if (todayEntry?.appUsage && todayEntry.appUsage.length > 0) {
+            return (
+              <Card>
+                <Text style={styles.sectionTitle}>App Usage Breakdown</Text>
+                {todayEntry.weeklyMinutes && (
+                  <Text style={[styles.mutedSmall, { marginBottom: spacing.md }]}>
+                    Weekly total: {Math.floor(todayEntry.weeklyMinutes / 60)}h {todayEntry.weeklyMinutes % 60}m
+                    {todayEntry.dailyAverage && (
+                      ` (avg ${Math.floor(todayEntry.dailyAverage / 60)}h ${todayEntry.dailyAverage % 60}m/day)`
+                    )}
+                  </Text>
+                )}
+                {todayEntry.appUsage.map((app, index) => (
+                  <View key={index} style={styles.appRow}>
+                    <Text style={styles.appName}>{app.appName}</Text>
+                    <Text style={styles.appTime}>
+                      {Math.floor(app.minutesUsed / 60)}h {app.minutesUsed % 60}m
+                    </Text>
+                  </View>
+                ))}
+              </Card>
+            );
+          }
+          return null;
+        })()} */}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -144,7 +238,7 @@ export default function ProgressScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
@@ -152,7 +246,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   title: {
     fontSize: 22,
@@ -167,6 +261,12 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.lg,
   },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
   label: { color: colors.mutedText, marginBottom: spacing.sm },
   value: { color: colors.text, fontSize: 18, fontWeight: '700' },
   input: {
@@ -176,7 +276,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 12,
     color: colors.text,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     marginBottom: spacing.md,
   },
   button: {
@@ -186,6 +286,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { color: '#fff', fontWeight: '600' },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: spacing.md,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    color: colors.mutedText,
+    paddingHorizontal: spacing.md,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   muted: { color: colors.mutedText },
   mutedSmall: { color: colors.mutedText, fontSize: 12, marginTop: 6 },
   progressTrack: {
@@ -197,6 +313,24 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     backgroundColor: colors.primary,
+  },
+  appRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  appName: {
+    color: colors.text,
+    fontSize: 15,
+    flex: 1,
+  },
+  appTime: {
+    color: colors.mutedText,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 
